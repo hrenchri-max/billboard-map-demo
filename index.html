@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Billboard Availability Map — Demo</title>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  .panel { position: absolute; top: 16px; left: 16px; z-index: 5; background: #fff; border-radius: 12px;
+           box-shadow: 0 4px 18px rgba(0,0,0,0.18); padding: 16px 18px; width: 270px; }
+  .panel h1 { font-size: 17px; margin-bottom: 2px; }
+  .panel p { font-size: 12px; color: #666; margin-bottom: 12px; }
+  .filters label { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0; cursor: pointer; }
+  .count { font-size: 12px; color: #888; margin-top: 10px; }
+  .popup h3 { font-size: 15px; margin-bottom: 4px; }
+  .popup .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-bottom: 8px; }
+  .badge.avail { background: #e2f6e6; color: #1a7f37; }
+  .badge.booked { background: #fde8e8; color: #b42318; }
+  .popup table { font-size: 12px; border-collapse: collapse; margin-bottom: 10px; }
+  .popup td { padding: 2px 8px 2px 0; color: #444; }
+  .popup td:first-child { color: #888; }
+  .popup .cta { display: block; text-align: center; background: #1a73e8; color: #fff; text-decoration: none;
+                font-size: 13px; font-weight: 600; padding: 8px 0; border-radius: 8px; }
+  .note { position: absolute; bottom: 22px; left: 16px; z-index: 5; background: rgba(255,255,255,0.92);
+          font-size: 11px; color: #555; padding: 6px 10px; border-radius: 8px; max-width: 320px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel">
+  <h1>Find Your Billboard</h1>
+  <p>Browse locations, check availability, contact our sales team.</p>
+  <div class="filters">
+    <label><input type="checkbox" id="onlyAvail"> Available now only</label>
+    <label><input type="checkbox" id="onlyDigital"> Digital boards only</label>
+  </div>
+  <div class="count" id="count"></div>
+</div>
+<div class="note">Demo with sample data. Production version reads live from your Airtable — your team edits a row, the map updates. Mapbox or MapLibre, your call.</div>
+<script>
+const BOARDS = [
+  { name: "I-94 & Moross — East Face", lat: 42.4239, lng: -82.9633, type: "Static Bulletin", size: "14' x 48'", traffic: "132,000/day", avail: true,  digital: false },
+  { name: "Woodward Ave @ 9 Mile",     lat: 42.4614, lng: -83.1347, type: "Digital",         size: "10' x 30'", traffic: "58,000/day",  avail: true,  digital: true },
+  { name: "I-75 & Big Beaver — South", lat: 42.5628, lng: -83.1810, type: "Static Bulletin", size: "14' x 48'", traffic: "161,000/day", avail: false, digital: false },
+  { name: "M-59 & Adams Rd",           lat: 42.6553, lng: -83.2410, type: "Digital",         size: "10' x 36'", traffic: "74,000/day",  avail: true,  digital: true },
+  { name: "Gratiot Ave @ 12 Mile",     lat: 42.5364, lng: -82.9159, type: "Poster",          size: "10' x 22'", traffic: "41,000/day",  avail: true,  digital: false },
+  { name: "I-696 & Van Dyke — West",   lat: 42.5296, lng: -83.0284, type: "Static Bulletin", size: "14' x 48'", traffic: "148,000/day", avail: false, digital: false },
+  { name: "Michigan Ave @ Wyoming",    lat: 42.3237, lng: -83.1620, type: "Digital",         size: "12' x 40'", traffic: "66,000/day",  avail: true,  digital: true },
+  { name: "Telegraph Rd @ Ford Rd",    lat: 42.3130, lng: -83.2733, type: "Poster",          size: "10' x 22'", traffic: "52,000/day",  avail: false, digital: false },
+  { name: "I-275 & Eureka Rd",         lat: 42.2382, lng: -83.3310, type: "Static Bulletin", size: "14' x 48'", traffic: "119,000/day", avail: true,  digital: false },
+  { name: "Hall Rd @ Schoenherr",      lat: 42.6266, lng: -82.9744, type: "Digital",         size: "10' x 30'", traffic: "88,000/day",  avail: true,  digital: true },
+];
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  center: [-83.10, 42.46],
+  zoom: 9.6,
+});
+map.addControl(new maplibregl.NavigationControl());
+
+let markers = [];
+function render() {
+  markers.forEach(m => m.remove());
+  markers = [];
+  const onlyAvail = document.getElementById('onlyAvail').checked;
+  const onlyDigital = document.getElementById('onlyDigital').checked;
+  const shown = BOARDS.filter(b => (!onlyAvail || b.avail) && (!onlyDigital || b.digital));
+  for (const b of shown) {
+    const el = document.createElement('div');
+    el.style.cssText = `width:26px;height:26px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;background:${b.avail ? '#1a7f37' : '#b42318'}`;
+    const popup = new maplibregl.Popup({ offset: 18 }).setHTML(`
+      <div class="popup">
+        <h3>${b.name}</h3>
+        <span class="badge ${b.avail ? 'avail' : 'booked'}">${b.avail ? 'Available now' : 'Booked'}</span>
+        <table>
+          <tr><td>Type</td><td>${b.type}</td></tr>
+          <tr><td>Size</td><td>${b.size}</td></tr>
+          <tr><td>Traffic</td><td>${b.traffic}</td></tr>
+        </table>
+        <a class="cta" href="mailto:sales@example.com?subject=Billboard inquiry: ${encodeURIComponent(b.name)}">Contact Sales</a>
+      </div>`);
+    markers.push(new maplibregl.Marker({ element: el }).setLngLat([b.lng, b.lat]).setPopup(popup).addTo(map));
+  }
+  document.getElementById('count').textContent = `${shown.length} of ${BOARDS.length} locations shown`;
+}
+document.getElementById('onlyAvail').addEventListener('change', render);
+document.getElementById('onlyDigital').addEventListener('change', render);
+map.on('load', render);
+</script>
+</body>
+</html>
